@@ -53,10 +53,34 @@ type JavaScriptInjectionTransformer struct {
 	javascriptURL string
 }
 
+// EditContentSecurityPolicy checks if JS inject src is trusted - if it isn't it adds the src to the content security policy
+func EditContentSecurityPolicy(response *http.Response, javascriptSrcURL string) {
+	contentSecurityPolicy := strings.Split(response.Header.Get("Content-Security-Policy"), ";")
+
+	newContentSecurityPolicy := make([]string, 0)
+
+	for _, section := range contentSecurityPolicy {
+		if strings.Contains(section, "script-src") {
+			newSection := strings.Trim(section, " ") + " " + javascriptSrcURL
+			newContentSecurityPolicy = append(newContentSecurityPolicy, newSection)
+		} else {
+			newContentSecurityPolicy = append(newContentSecurityPolicy, strings.Trim(section, " "))
+		}
+	}
+
+	response.Header.Set("Content-Security-Policy", strings.Join(newContentSecurityPolicy, "; "))
+}
+
 // Transform Injects JavaScript into an HTML response.
 func (j JavaScriptInjectionTransformer) Transform(response *http.Response) error {
 	if !strings.Contains(response.Header.Get("Content-Type"), "text/html") {
 		return nil
+	}
+
+	javascriptSrcURL := strings.Split(strings.Split(j.javascriptURL, "//")[1], "/")[0]
+
+	if !strings.Contains(response.Header.Get("Content-Security-Policy"), javascriptSrcURL) {
+		EditContentSecurityPolicy(response, javascriptSrcURL)
 	}
 
 	// Prevent NewDocumentFromReader from closing the response body.
@@ -72,7 +96,7 @@ func (j JavaScriptInjectionTransformer) Transform(response *http.Response) error
 		return err
 	}
 
-	payload := fmt.Sprintf("<script type='text/javascript' src='%s'></script>", j.javascriptURL)
+	payload := fmt.Sprintf(`<script type="text/javascript" src="%s"></script>`, j.javascriptURL)
 	selection := document.
 		Find("head").
 		AppendHtml(payload).
